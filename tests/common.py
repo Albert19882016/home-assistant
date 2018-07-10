@@ -311,11 +311,12 @@ def mock_registry(hass, mock_entries=None):
 class MockUser(auth.User):
     """Mock a user in Home Assistant."""
 
-    def __init__(self, id='mock-id', is_owner=True, is_active=True,
-                 name='Mock User'):
+    def __init__(self, id='mock-id', is_owner=False, is_active=True,
+                 name='Mock User', system_generated=False):
         """Initialize mock user."""
         super().__init__(
-            id=id, is_owner=is_owner, is_active=is_active, name=name)
+            id=id, is_owner=is_owner, is_active=is_active, name=name,
+            system_generated=system_generated)
 
     def add_to_hass(self, hass):
         """Test helper to add entry to hass."""
@@ -326,6 +327,20 @@ class MockUser(auth.User):
         ensure_auth_manager_loaded(auth_mgr)
         auth_mgr._store._users[self.id] = self
         return self
+
+
+async def register_auth_provider(hass, config):
+    """Helper to register an auth provider."""
+    provider = await auth._auth_provider_from_config(hass, hass.auth._store,
+                                                     config)
+    assert provider is not None, 'Invalid config specified'
+    key = (provider.type, provider.id)
+    providers = hass.auth._providers
+
+    if key in providers:
+        raise ValueError('Provider already registered')
+
+    providers[key] = provider
 
 
 @ha.callback
@@ -730,7 +745,13 @@ def mock_storage(data=None):
             if store.key not in data:
                 return None
 
-            store._data = data.get(store.key)
+            mock_data = data.get(store.key)
+
+            if 'data' not in mock_data or 'version' not in mock_data:
+                _LOGGER.error('Mock data needs "version" and "data"')
+                raise ValueError('Mock data needs "version" and "data"')
+
+            store._data = mock_data
 
         # Route through original load so that we trigger migration
         loaded = await orig_load(store)
